@@ -1,7 +1,16 @@
 # Bus Sniper
 
 Books a seat on bus-med.1337.ma the moment booking opens (on the hour).
-Works on Windows, macOS and Linux. Needs **Node.js 22 or newer** (https://nodejs.org, LTS).
+Works on Windows, macOS and Linux. Needs **Node.js 22 or newer** - check with `node -v`.
+
+- Windows / macOS: install the LTS version from https://nodejs.org
+- Linux (no sudo needed, works on school machines):
+  ```
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+  # close and reopen the terminal, then:
+  nvm install 22
+  ```
+  The launchers find a Node installed with nvm by themselves.
 
 ## Start
 
