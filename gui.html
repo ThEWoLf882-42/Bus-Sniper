@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bus Sniper</title>
+<style>
+  :root {
+    --bg: #f3f4f6; --panel: #ffffff; --ink: #111827; --muted: #6b7280; --line: #e5e7eb;
+    --chip: #eceef2; --hover: #f7f8fa;
+    --go: #16a34a; --go-ink: #ffffff; --go-soft: #dcfce7; --go-text: #166534;
+    --sel: #2563eb; --sel-soft: #eff6ff;
+    --warn: #b45309; --warn-soft: #fef3c7;
+    --bad: #dc2626; --bad-soft: #fee2e2;
+    --log-bg: #0f172a; --log-ink: #cbd5e1;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0d10; --panel: #15181d; --ink: #e5e7eb; --muted: #9ca3af; --line: #262a31;
+      --chip: #1f232a; --hover: #1b1f25;
+      --go: #22c55e; --go-ink: #052e12; --go-soft: #0f2a1a; --go-text: #86efac;
+      --sel: #60a5fa; --sel-soft: #13203a;
+      --warn: #fbbf24; --warn-soft: #2a2110;
+      --bad: #f87171; --bad-soft: #2c1414;
+      --log-bg: #07090c; --log-ink: #cbd5e1;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  [hidden] { display: none !important; }
+
+  header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .bar { max-width: 1120px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .brand { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .logo { background: var(--ink); color: var(--panel); border-radius: 6px; padding: 2px 6px; font-size: 13px; letter-spacing: .5px; }
+  .who { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--chip); font-size: 12px; white-space: nowrap; }
+  .linkish { background: none; border: 0; padding: 0; color: var(--sel); font-size: 12px; }
+
+  #offline { background: var(--bad-soft); color: var(--bad); text-align: center; padding: 8px 16px; font-weight: 600; }
+
+  main { max-width: 1120px; margin: 0 auto; padding: 16px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } .plan-col { order: -1; position: static !important; } }
+  @media (max-width: 480px) { .row { gap: 8px; padding: 9px 10px; } .meter { display: none; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  h2 { font-size: 16px; margin: 0; }
+
+  /* list */
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 12px; }
+  .chip.on { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+  .search { flex: 1; min-width: 140px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 10px; }
+  .ghost { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 12px; }
+  .ghost:hover:not(:disabled) { background: var(--hover); }
+
+  .group { margin-bottom: 14px; }
+  .ghead { display: flex; align-items: baseline; gap: 8px; font-weight: 600; margin: 0 2px 6px; }
+  .ghead .cd { font-weight: 400; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .live { width: 8px; height: 8px; border-radius: 50%; background: var(--go); display: inline-block; box-shadow: 0 0 0 3px var(--go-soft); align-self: center; }
+  .rows { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .row { width: 100%; display: grid; grid-template-columns: 64px minmax(0, 1fr) auto auto 28px; gap: 10px; align-items: center;
+         padding: 9px 12px; border: 0; border-top: 1px solid var(--line); background: transparent; text-align: left; }
+  .row:first-child { border-top: 0; }
+  .row:hover:not(:disabled) { background: var(--hover); }
+  .row.on { background: var(--sel-soft); }
+  .row:disabled { opacity: .55; }
+  .bus { font-size: 11px; font-weight: 700; letter-spacing: .3px; padding: 2px 6px; border-radius: 5px; background: var(--chip); text-align: center; white-space: nowrap; }
+  .dest { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .time { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .seats { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .meter { width: 44px; height: 5px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--go); }
+  .meter.hot i { background: var(--warn); }
+  .meter.full i { background: var(--bad); }
+  .rank { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; border: 1.5px solid var(--line); color: transparent; }
+  .row.on .rank { background: var(--sel); border-color: var(--sel); color: #fff; }
+  .empty { padding: 24px; text-align: center; color: var(--muted); }
+
+  /* plan */
+  .plan-col { position: sticky; top: 70px; }
+  .plan-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+  .phase { font-weight: 600; }
+  .phase.waiting, .phase.preparing, .phase.starting { background: var(--warn-soft); color: var(--warn); }
+  .phase.firing { background: var(--sel-soft); color: var(--sel); }
+  .phase.booked, .phase.dry { background: var(--go-soft); color: var(--go-text); }
+  .phase.failed { background: var(--bad-soft); color: var(--bad); }
+  .targets { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
+  .targets li { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 10px; border: 1px solid var(--line); border-radius: 8px; }
+  .targets li.cur { border-color: var(--sel); background: var(--sel-soft); }
+  .targets .n { font-weight: 700; color: var(--muted); width: 16px; }
+  .targets .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .targets .x { border: 0; background: none; color: var(--muted); font-size: 16px; line-height: 1; padding: 2px 4px; }
+  .countdown { text-align: center; padding: 14px 8px; border-radius: 10px; background: var(--bg); margin-bottom: 12px; }
+  .cd-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .cd-time { font-size: 40px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -1px; line-height: 1.15; }
+  .cd-time.open { color: var(--go); }
+  .result { padding: 12px; border-radius: 10px; margin-bottom: 12px; font-weight: 600; }
+  .result.good { background: var(--go-soft); color: var(--go-text); }
+  .result.bad { background: var(--bad-soft); color: var(--bad); }
+  .check { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0 12px; font-size: 13px; }
+  .check input { margin-top: 3px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .primary { flex: 1; border: 0; border-radius: 10px; padding: 11px 14px; font-weight: 700; background: var(--go); color: var(--go-ink); }
+  .primary:disabled { background: var(--chip); color: var(--muted); }
+  .danger { flex: 1; border: 0; border-radius: 10px; padding: 11px 14px; font-weight: 700; background: #dc2626; color: #fff; }
+  .log { margin: 12px 0 0; max-height: 260px; overflow: auto; background: var(--log-bg); color: var(--log-ink); border-radius: 8px;
+         padding: 10px; font: 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+
+  /* connect */
+  .connect { max-width: 640px; margin: 24px auto; }
+  .connect ol { padding-left: 20px; }
+  .connect li { margin: 4px 0; }
+  .connect textarea { width: 100%; min-height: 110px; border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--bg);
+                      font: 12px/1.4 ui-monospace, Consolas, monospace; resize: vertical; }
+  .err { color: var(--bad); font-weight: 600; }
+  .notice { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 10px 12px; font-weight: 600; margin: 0 0 12px; }
+  .notice.bad { background: var(--bad-soft); color: var(--bad); }
+  details { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); }
+  .spin { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+          display: inline-block; vertical-align: -1px; margin-right: 8px; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  a { color: var(--sel); }
+  code { background: var(--chip); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand"><span class="logo">1337</span> Bus Sniper</div>
+    <div class="who" id="who"></div>
+  </div>
+</header>
+<div id="offline" hidden>Lost connection to the bot - is the black console window still open?</div>
+
+<main>
+  <section id="connect" class="card connect" hidden>
+    <h2>Log in to the bus site</h2>
+    <p class="muted" id="authErr"></p>
+    <div id="loginBox">
+      <p class="notice" id="loginNote" hidden></p>
+      <p class="muted small" id="loginHelp">A separate <b id="browserName">browser</b> window opens on the 42 login page (its own profile, your normal browsing isn't touched). Log in there
+        (tick <i>Remember me</i> if you see it); the window closes by itself and you're in.
+        Next time the login expires, it renews on its own while 42 still remembers you.</p>
+      <div class="actions">
+        <button class="primary" id="loginBtn">Log in with 42</button>
+        <button class="ghost" id="cancelConnect" hidden>Cancel</button>
+      </div>
+    </div>
+    <details id="pasteBox">
+      <summary>Or paste a cookie by hand</summary>
+      <ol>
+        <li>Open <a href="https://bus-med.1337.ma/home" target="_blank" rel="noopener">bus-med.1337.ma/home</a> and log in with 42.</li>
+        <li>On <b>that tab</b>, open your cookie extension and choose <b>Export &rarr; JSON</b>
+          (or copy the <code>cookie</code> request header from DevTools &rarr; Network).</li>
+        <li>Paste it below. Only cookies for bus-med.1337.ma are kept; everything else is thrown away.</li>
+      </ol>
+      <textarea id="cookieIn" spellcheck="false" placeholder="Paste the cookie export here"></textarea>
+      <p class="err" id="cookieErr" hidden></p>
+      <div class="actions" style="margin-top:10px">
+        <button class="ghost" id="saveCookie">Save &amp; connect</button>
+      </div>
+    </details>
+  </section>
+
+  <section id="app" class="layout" hidden>
+    <div class="list-col">
+      <div class="toolbar">
+        <div class="chips" id="chips"></div>
+        <input class="search" id="search" type="search" placeholder="Search bus, place or time">
+        <button class="ghost" id="refresh">Refresh</button>
+      </div>
+      <div id="list"></div>
+    </div>
+
+    <aside class="plan-col">
+      <div class="card">
+        <div class="plan-head">
+          <h2 id="planTitle">Your plan</h2>
+          <span class="pill phase" id="phase" hidden></span>
+        </div>
+        <ol class="targets" id="targets"></ol>
+        <p class="muted small" id="hint">Click buses in the order you want them. #1 is tried first; the next one only if #1 is full.</p>
+        <div class="countdown" id="countdown" hidden>
+          <div class="cd-label" id="cdLabel"></div>
+          <div class="cd-time" id="cdTime"></div>
+          <div class="muted small" id="cdSub"></div>
+        </div>
+        <div class="result" id="result" hidden></div>
+        <p class="notice" id="planLogin" hidden></p>
+        <label class="check" id="dryWrap"><input type="checkbox" id="dry"> <span>Dry run &ndash; do everything except actually book (for testing)</span></label>
+        <div class="actions">
+          <button class="primary" id="go" disabled>Pick a bus</button>
+          <button class="danger" id="stop" hidden>Stop</button>
+          <button class="ghost" id="reset" hidden>New plan</button>
+          <button class="ghost" id="clear">Clear</button>
+        </div>
+        <p class="muted small" id="awake" style="margin:10px 0 0">Keep the console window open and the PC awake until it fires.</p>
+        <pre class="log" id="log" hidden></pre>
+      </div>
+    </aside>
+  </section>
+</main>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get('t');
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+let S = null;               // last state from the bot
+let offset = 0;             // bot clock (synced to the bus server) minus browser clock
+let sel = store.get('sel', []);
+let place = 'All', query = '';
+let dismissed = store.get('dismissed', 0);
+let wantConnect = false;
+let listKey = '', logKey = '';
+
+const now = () => Date.now() + offset;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// format in the bot's timezone, not the browser's (they can differ, e.g. privacy modes force UTC)
+const pad = n => String(n).padStart(2, '0');
+const shift = ms => new Date(ms - (S?.tz ?? new Date().getTimezoneOffset()) * 60e3);
+const hhmm = ms => { const d = shift(ms); return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; };
+const hms = ms => `${hhmm(ms)}:${pad(shift(ms).getUTCSeconds())}`;
+const ms3 = ms => `${hms(ms)}.${String(Math.floor(ms % 1000)).padStart(3, '0')}`;
+function left(ms, fine) {
+  if (ms <= 0) return '0:00';
+  if (fine && ms < 60e3) return (ms / 1000).toFixed(1) + 's';
+  const s = Math.ceil(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
+}
+
+async function call(path, body) {
+  const r = await fetch(path, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'x-token': TOKEN, 'content-type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+async function poll() {
+  try {
+    apply(await call('/api/state'));
+    $('offline').hidden = true;
+  } catch {
+    $('offline').hidden = false;
+  }
+  setTimeout(poll, S?.job?.running || S?.login?.busy ? 400 : 1500);
+}
+
+function apply(state) {
+  S = state;
+  offset = state.serverNow - Date.now();
+  const itemsById = new Map(state.items.map(i => [i.id, i]));
+  if (state.items.length && sel.some(id => !itemsById.has(id))) setSel(sel.filter(id => itemsById.has(id)));
+  render();
+}
+
+const activeJob = () => (S?.job && (S.job.running || S.job.id !== dismissed) ? S.job : null);
+const setSel = v => { sel = v; store.set('sel', v); };
+
+function render() {
+  const connect = !S.user || wantConnect;
+  $('connect').hidden = !connect;
+  $('app').hidden = connect;
+  $('cancelConnect').hidden = !S.user;
+  renderWho();
+  renderLogin();
+  if (!connect) { renderList(); renderPlan(); }
+}
+
+function renderLogin() {
+  const L = S.login;
+  $('authErr').textContent = S.user ? `Logged in as ${S.user.login}.`
+    : S.authError?.startsWith("Can't reach") ? S.authError : "You're not logged in, or the login expired.";
+  $('loginNote').hidden = !L.busy && !L.text;
+  $('loginNote').className = `notice${!L.busy && L.text ? ' bad' : ''}`;
+  $('loginNote').innerHTML = L.busy ? `<span class="spin"></span>${esc(L.text || 'Starting the login window...')}` : esc(L.text);
+  $('loginBox').hidden = !L.browser;
+  $('browserName').textContent = L.browser || 'browser';
+  $('loginBtn').disabled = L.busy;
+  $('loginBtn').textContent = L.busy ? 'Waiting for you to log in...' : 'Log in with 42';
+  if (!L.browser) $('pasteBox').open = true;
+  // a login running in the middle of a booking
+  $('planLogin').hidden = !L.busy;
+  $('planLogin').innerHTML = L.busy ? `<span class="spin"></span>${esc(L.text || 'Renewing your login...')}` : '';
+}
+
+const day = ms => shift(ms).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
+
+function renderWho() {
+  const parts = [];
+  if (S.user) {
+    parts.push(`<span class="pill"><b>${esc(S.user.login)}</b></span>`);
+    if (S.latest) parts.push(`<span class="pill">Ticket #${esc(S.latest.id)} &middot; ${esc(S.latest.status)}</span>`);
+    if (S.expires) parts.push(`<span class="pill muted" title="Renews by itself when it runs out">login until ${day(S.expires)}</span>`);
+    parts.push(`<span class="pill muted">ping ${S.clock.ping}ms</span>`);
+    parts.push(`<button class="linkish" id="switch">Log in again</button>`);
+  }
+  $('who').innerHTML = parts.join('');
+  const sw = $('switch');
+  if (sw) sw.onclick = () => { wantConnect = true; render(); };
+}
+
+const places = () => [...new Set(S.items.flatMap(i => i.name.split(/\s*\+\s*/)))].sort();
+const matches = i => (place === 'All' || i.name.split(/\s*\+\s*/).includes(place)) &&
+  (!query || `${i.bus} ${i.name} ${i.time}`.toLowerCase().includes(query));
+
+function renderList() {
+  const job = activeJob();
+  const locked = !!job?.running;
+  const order = job ? job.targets.map(t => t.id) : sel;
+  const key = JSON.stringify([S.items, order, place, query, locked, S.tz]);
+  if (key === listKey) return;
+  listKey = key;
+
+  $('chips').innerHTML = ['All', ...places()].map(p => `<button class="chip${p === place ? ' on' : ''}" data-place="${esc(p)}">${esc(p)}</button>`).join('');
+
+  const groups = new Map();
+  for (const it of S.items.filter(matches)) {
+    const k = it.open ? 'open' : it.opensAt ?? 'none';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(it);
+  }
+  let html = '';
+  for (const [k, list] of groups) {
+    const head = k === 'open' ? '<span class="live"></span>Open now'
+      : k === 'none' ? 'No opening time'
+      : `Opens ${hhmm(k)} <span class="cd" data-cd="${k}"></span>`;
+    html += `<div class="group"><div class="ghead">${head}</div><div class="rows">${list.map(it => row(it, locked, order)).join('')}</div></div>`;
+  }
+  $('list').innerHTML = html || '<div class="card empty">No buses match.</div>';
+  tickClocks();
+}
+
+function row(it, locked, order) {
+  const i = order.indexOf(it.id);
+  let seats = '';
+  if (it.open && it.capacity) {
+    const pct = Math.min(100, Math.round(100 * (it.taken ?? 0) / it.capacity));
+    seats = `<span class="seats"><span class="meter${pct >= 100 ? ' full' : pct >= 75 ? ' hot' : ''}"><i style="width:${pct}%"></i></span>${it.taken ?? 0}/${it.capacity}</span>`;
+  }
+  return `<button class="row${i >= 0 ? ' on' : ''}" data-id="${it.id}"${locked ? ' disabled' : ''} title="Route id ${it.id}">
+    <span class="bus">${esc(it.bus)}</span><span class="dest">${esc(it.name)}</span>
+    <span class="time">${esc(it.time)}</span><span>${seats}</span><span class="rank">${i >= 0 ? i + 1 : ''}</span></button>`;
+}
+
+const PHASES = {
+  starting: 'Starting', waiting: 'Waiting', preparing: 'Getting ready', firing: 'Firing',
+  booked: 'Booked!', already: 'Already booked', dry: 'Dry run OK', failed: 'Failed', stopped: 'Stopped',
+};
+
+function renderPlan() {
+  const job = activeJob();
+  const byId = new Map(S.items.map(i => [i.id, i]));
+  const running = !!job?.running;
+
+  $('planTitle').textContent = job ? (job.dryRun ? 'Dry run' : 'Booking') : 'Your plan';
+  $('phase').hidden = !job;
+  if (job) { $('phase').textContent = PHASES[job.phase] || job.phase; $('phase').className = `pill phase ${job.phase}`; }
+
+  const targets = job ? job.targets : sel.map(id => byId.get(id)).filter(Boolean).map(i => ({ id: i.id, label: `${i.bus} -> ${i.name} @ ${i.time}` }));
+  $('targets').innerHTML = targets.map((t, n) =>
+    `<li class="${job && job.current === t.id && running ? 'cur' : ''}"><span class="n">${n + 1}</span><span class="t">${esc(t.label)}</span>` +
+    (job ? '' : `<button class="x" data-remove="${t.id}" aria-label="Remove">&times;</button>`) + '</li>').join('');
+  $('hint').hidden = !!job || targets.length > 1;
+
+  // countdown target: the job's current opening, or the first pick's
+  let opensAt = null, open = false;
+  if (job) { opensAt = job.opensAt; open = job.phase === 'firing'; }
+  else if (targets.length) { const f = byId.get(targets[0].id); open = f.open; opensAt = f.opensAt; }
+  const showCd = (job ? running : targets.length > 0) && (open || opensAt);
+  $('countdown').hidden = !showCd;
+  $('cdTime').dataset.cd = open ? '' : opensAt || '';
+  $('cdTime').classList.toggle('open', open);
+  if (open) { $('cdLabel').textContent = job ? 'Status' : 'Booking is'; $('cdTime').textContent = job ? 'Firing' : 'Open now'; $('cdSub').textContent = ''; }
+  else if (opensAt) { $('cdLabel').textContent = 'Booking opens in'; $('cdSub').textContent = `at ${hms(opensAt)}`; }
+
+  const res = job && !running ? job.result : null;
+  $('result').hidden = !res;
+  if (res) { $('result').textContent = res.text; $('result').className = `result ${res.ok || res.already ? 'good' : 'bad'}`; }
+
+  $('dryWrap').hidden = !!job;
+  $('clear').hidden = !!job || !targets.length;
+  $('stop').hidden = !running;
+  $('reset').hidden = !job || running;
+  $('go').hidden = !!job;
+  $('awake').hidden = job && !running;
+  $('go').disabled = !targets.length;
+  $('go').textContent = !targets.length ? 'Pick a bus' : open ? 'Book now' : `Arm - book at ${hms(opensAt)}`;
+
+  $('log').hidden = !job;
+  if (job) {
+    const key = job.id + ':' + job.log.length + ':' + (job.log.at(-1)?.t ?? '');
+    if (key !== logKey) {
+      logKey = key;
+      const el = $('log');
+      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+      el.textContent = job.log.map(l => `${ms3(l.t)}  ${l.text}`).join('\n');
+      if (atBottom) el.scrollTop = el.scrollHeight;
+    }
+  }
+  tickClocks();
+}
+
+function tickClocks() {
+  if (!S) return;
+  for (const el of document.querySelectorAll('[data-cd]')) {
+    const t = Number(el.dataset.cd);
+    if (!t) continue;
+    el.textContent = el.id === 'cdTime' ? left(t - now(), true) : `in ${left(t - now())}`;
+  }
+  const job = activeJob();
+  const t = Number($('cdTime').dataset.cd);
+  document.title = job?.phase === 'booked' ? 'Booked! - Bus Sniper'
+    : job?.running && t ? `${left(t - now())} - Bus Sniper`
+    : job?.running ? `${PHASES[job.phase]} - Bus Sniper` : 'Bus Sniper';
+}
+
+// ---------- events ----------
+
+$('list').addEventListener('click', e => {
+  const b = e.target.closest('.row');
+  if (!b || b.disabled) return;
+  const id = Number(b.dataset.id);
+  setSel(sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
+  render();
+});
+$('chips').addEventListener('click', e => {
+  const b = e.target.closest('[data-place]');
+  if (b) { place = b.dataset.place; render(); }
+});
+$('search').addEventListener('input', e => { query = e.target.value.trim().toLowerCase(); render(); });
+$('targets').addEventListener('click', e => {
+  const b = e.target.closest('[data-remove]');
+  if (b) { setSel(sel.filter(x => x !== Number(b.dataset.remove))); render(); }
+});
+$('clear').onclick = () => { setSel([]); render(); };
+$('dry').checked = store.get('dry', false);
+$('dry').onchange = e => store.set('dry', e.target.checked);
+
+async function act(btn, fn) {
+  btn.disabled = true;
+  try { await fn(); } catch (e) { alert(e.message); } finally { btn.disabled = false; render(); }
+}
+$('refresh').onclick = () => act($('refresh'), async () => apply(await call('/api/refresh', {})));
+$('go').onclick = () => act($('go'), async () => apply(await call('/api/start', { ids: sel, dryRun: $('dry').checked })));
+$('stop').onclick = () => act($('stop'), async () => apply(await call('/api/stop', {})));
+$('reset').onclick = () => { dismissed = S.job.id; store.set('dismissed', dismissed); render(); };
+$('cancelConnect').onclick = () => { wantConnect = false; render(); };
+$('loginBtn').onclick = () => act($('loginBtn'), async () => { wantConnect = false; apply(await call('/api/login', {})); });
+$('saveCookie').onclick = () => act($('saveCookie'), async () => {
+  $('cookieErr').hidden = true;
+  try {
+    const st = await call('/api/cookie', { cookie: $('cookieIn').value });
+    $('cookieIn').value = '';
+    wantConnect = false;
+    apply(st);
+  } catch (e) {
+    $('cookieErr').textContent = e.message;
+    $('cookieErr').hidden = false;
+  }
+});
+
+setInterval(tickClocks, 100);
+if (!TOKEN) document.body.innerHTML = '<main><div class="card connect">Open the link printed in the console window (it has a ?t=... token).</div></main>';
+else poll();
+</script>
+</body>
+</html>

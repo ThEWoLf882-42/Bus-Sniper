@@ -1,0 +1,10 @@
+# your login - never commit these
+cookie.txt
+.login/
+
+# OS / editor clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+node_modules/
