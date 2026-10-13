@@ -104,7 +104,12 @@ export async function loadItems() {
     item.dep = dep;
     byRoute.set(id, item);
   }
-  return [...byRoute.values()].sort((a, b) => opensKey(a) - opensKey(b));
+  // soonest first; same opening time: BUS 01, BUS 02, BUS 03...
+  const busName = it => String(it.route.bus?.name ?? '');
+  return [...byRoute.values()].sort((a, b) =>
+    (opensKey(a) - opensKey(b)) ||
+    busName(a).localeCompare(busName(b), undefined, { numeric: true }) ||
+    String(a.route.name).localeCompare(String(b.route.name)));
 }
 
 // same count as the site's seat map: cancelled tickets don't take a seat
