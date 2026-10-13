@@ -140,7 +140,7 @@ export function nextOpening(route) {
   return t.getTime();
 }
 
-export const label = r => `${r.bus?.name ?? 'bus'} -> ${r.name ?? '?'}${r.departure_time ? ` @ ${String(r.departure_time).slice(0, 5)}` : ''}`;
+export const label = r => `${r.bus?.name ?? 'bus'} -> ${r.name ?? '?'}${r.departure_time ? ` @ ${hhmm(r.departure_time)}` : ''}`;
 
 // ---------- booking ----------
 
@@ -369,7 +369,21 @@ Wait-Process -Id ${pid}`;
 
 // ---------- formatting ----------
 
-export const clock = ms => new Date(ms).toLocaleTimeString('en-GB', { hour12: false });
+let hour12 = false;
+export const useHour12 = on => { hour12 = !!on; };
+
+function fmtTime(h, m, s) {
+  const rest = `${String(m).padStart(2, '0')}${s == null ? '' : `:${String(s).padStart(2, '0')}`}`;
+  return hour12 ? `${h % 12 || 12}:${rest} ${h < 12 ? 'AM' : 'PM'}` : `${String(h).padStart(2, '0')}:${rest}`;
+}
+
+export const clock = ms => { const d = new Date(ms); return fmtTime(d.getHours(), d.getMinutes(), d.getSeconds()); };
+
+// "21:00:00" (as the site sends departure times) -> "21:00" or "9:00 PM"
+function hhmm(str) {
+  const [h, m] = String(str).split(':').map(Number);
+  return Number.isFinite(h) && Number.isFinite(m) ? fmtTime(h, m) : String(str).slice(0, 5);
+}
 export const rel = ms => `${ms >= 0 ? '+' : ''}${Math.round(ms)}ms`;
 
 export function dur(ms) {

@@ -34,8 +34,10 @@ A console window stays open (that's the bot: keep it open) and the GUI opens in 
 When the login expires (every 7 days) it renews by itself in the background while 42 still
 remembers you; otherwise the login window pops up again, also ~1 minute before a bus opens.
 
-The login window works with Chrome, Brave, Chromium, Vivaldi, Opera, Edge and Firefox.
-If your default browser is Safari, Arc or a Flatpak browser, another installed one is used.
+The GUI and the login window always use the same browser, picked at start (the console
+says which): one that's already open (your default if several are), else your default browser.
+Works with Chrome, Brave, Chromium, Vivaldi, Opera, Firefox (and Edge if it's your default).
+If yours is Safari, Arc or a Flatpak browser, another installed one is used for both.
 To force one: set `BUS_BROWSER=/path/to/browser`.
 
 ## Terminal version
@@ -45,6 +47,7 @@ node bus.mjs            menu, then wait and book
 node bus.mjs --list     show buses and opening times
 node bus.mjs -r 152,120 book route 152, fallback 120
 node bus.mjs --login    log in, then exit
+node bus.mjs --12h      times as 9:00 PM (the GUI has a 12h/24h switch, top right)
 node bus.mjs --help     all options
 ```
 

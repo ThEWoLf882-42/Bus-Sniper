@@ -18,16 +18,67 @@ const LOGIN_URL = `${ORIGIN}/api/auth/42`;
 
 // ---------- which browser ----------
 
-// BUS_BROWSER=/path/to/browser overrides everything. Otherwise the default
-// browser; if that can't be driven (Safari), the first installed of these.
+// One browser for everything (the GUI page and the login window), picked once
+// per run: one that's already open (your default if several are), else your
+// default browser, else the first installed fallback. Edge only if it's your
+// default. BUS_BROWSER=/path/to/browser overrides all of this.
+let chosen;
 export function findBrowser() {
+  if (chosen === undefined) chosen = pickBrowser();
+  return chosen;
+}
+
+function pickBrowser() {
   if (process.env.BUS_BROWSER) return describe(process.env.BUS_BROWSER);
   let def = null;
   try { def = describe(defaultBrowserExe()); } catch {}
-  if (def?.kind && existsSync(def.exe)) return def;
-  const fallback = fallbacks().map(describe).find(b => b.kind && existsSync(b.exe));
-  return fallback && { ...fallback, note: `${def?.name ?? 'your default browser'} can't be used for this` };
+  const usable = b => !!b?.kind && existsSync(b.exe) && (b.name !== 'Edge' || def?.name === 'Edge');
+  const open = runningBrowsers().filter(usable);
+  const pick = open.find(b => b.name === def?.name) ?? open[0];
+  if (pick) return { ...pick, open: true };
+  if (usable(def)) return def;
+  const fallback = fallbacks().map(describe).find(usable);
+  return fallback ? { ...fallback, note: `${def?.name ?? 'your default browser'} can't be used for this` } : null;
 }
+
+// Open a page in the chosen browser (a new tab in your normal window), or
+// with the system's default handler if there's no usable browser.
+export function openInBrowser(url) {
+  const b = findBrowser();
+  const [cmd, args] = !b ? (process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
+      : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]])
+    // macOS: hand the URL to the running app instead of starting a second copy
+    : process.platform === 'darwin' ? ['open', ['-a', b.exe.replace(/\.app\/.*$/, '.app'), url]]
+    : [b.exe, [url]];
+  spawn(cmd, args, { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
+}
+
+// main browser processes with a window (Windows) / running (macOS, Linux)
+const BROWSER_BINARY = /^(firefox(-bin|-esr)?|(google[- ])?chrome(-stable)?|chromium(-browser)?|brave([- ]browser)?|msedge|microsoft[- ]edge|vivaldi(-bin)?|opera|librewolf|waterfox|floorp)$/i;
+
+function runningBrowsers() {
+  let paths = [];
+  try {
+    if (process.platform === 'win32') {
+      paths = run('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+        'Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.Path } | ForEach-Object { $_.Path }']).split(/\r?\n/);
+    } else if (process.platform === 'darwin') {
+      paths = run('ps', ['-axo', 'comm=']).split('\n').filter(p => /\.app\/Contents\/MacOS\/[^/]+$/.test(p));
+    } else {
+      paths = run('ps', ['-eo', 'args=']).split('\n')
+        .filter(l => !/--type=|-contentproc/.test(l)) // skip helper/content processes
+        .map(l => l.trim().split(/\s+/)[0])
+        .map(p => p.match(/^\/snap\/([^/]+)\//) ? `/snap/bin/${p.split('/')[2]}` : p.startsWith('/') ? p : which(p));
+    }
+  } catch {
+    return [];
+  }
+  const seen = new Set();
+  return paths.map(p => p?.trim()).filter(p => p && BROWSER_BINARY.test(basename(p).replace(/\.exe$/i, '')))
+    .map(describe).filter(b => b.kind && !seen.has(b.name) && seen.add(b.name));
+}
+
+const run = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], timeout: 8000 });
 
 function describe(exe) {
   if (!exe) return null;
@@ -41,7 +92,6 @@ function describe(exe) {
 }
 
 function defaultBrowserExe() {
-  const run = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
   if (process.platform === 'win32') {
     const key = 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\';
     let progId;

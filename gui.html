@@ -41,6 +41,9 @@
   .brand { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; }
   .logo { background: var(--ink); color: var(--panel); border-radius: 6px; padding: 2px 6px; font-size: 13px; letter-spacing: .5px; }
   .who { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+  .seg button.on { background: var(--ink); color: var(--panel); }
   .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--chip); font-size: 12px; white-space: nowrap; }
   .linkish { background: none; border: 0; padding: 0; color: var(--sel); font-size: 12px; }
 
@@ -138,11 +141,15 @@
   <div class="bar">
     <div class="brand"><span class="logo">1337</span> Bus Sniper</div>
     <div class="who" id="who"></div>
+    <div class="seg" id="hourFmt" role="group" aria-label="Time format">
+      <button data-h12="0" title="21:00">24h</button><button data-h12="1" title="9:00 PM">12h</button>
+    </div>
   </div>
 </header>
 <div id="offline" hidden>Lost connection to the bot - is the black console window still open?</div>
 
 <main>
+  <p id="loading" class="muted" style="text-align:center;margin-top:48px"><span class="spin"></span>Checking your login...</p>
   <section id="connect" class="card connect" hidden>
     <h2>Log in to the bus site</h2>
     <p class="muted" id="authErr"></p>
@@ -232,9 +239,18 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 // format in the bot's timezone, not the browser's (they can differ, e.g. privacy modes force UTC)
 const pad = n => String(n).padStart(2, '0');
 const shift = ms => new Date(ms - (S?.tz ?? new Date().getTimezoneOffset()) * 60e3);
-const hhmm = ms => { const d = shift(ms); return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; };
-const hms = ms => `${hhmm(ms)}:${pad(shift(ms).getUTCSeconds())}`;
-const ms3 = ms => `${hms(ms)}.${String(Math.floor(ms % 1000)).padStart(3, '0')}`;
+let h12 = store.get('h12', false);
+function tfmt(h, m, s, ms) {
+  const rest = pad(m) + (s == null ? '' : ':' + pad(s)) + (ms == null ? '' : '.' + String(ms).padStart(3, '0'));
+  return h12 ? `${h % 12 || 12}:${rest} ${h < 12 ? 'AM' : 'PM'}` : `${pad(h)}:${rest}`;
+}
+const hhmm = ms => { const d = shift(ms); return tfmt(d.getUTCHours(), d.getUTCMinutes()); };
+const hms = ms => { const d = shift(ms); return tfmt(d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()); };
+const ms3 = ms => { const d = shift(ms); return tfmt(d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(), d.getUTCMilliseconds()); };
+// "21:00" strings from the site, and times inside the bot's log lines (always 24h)
+const hmStr = s => { const m = /^(\d{1,2}):(\d{2})/.exec(s || ''); return m ? tfmt(+m[1], +m[2]) : (s || ''); };
+const localize = text => !h12 ? text : String(text).replace(/\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b/g,
+  (_, h, m, s) => tfmt(+h, +m, s == null ? null : +s));
 function left(ms, fine) {
   if (ms <= 0) return '0:00';
   if (fine && ms < 60e3) return (ms / 1000).toFixed(1) + 's';
@@ -275,6 +291,8 @@ const activeJob = () => (S?.job && (S.job.running || S.job.id !== dismissed) ? S
 const setSel = v => { sel = v; store.set('sel', v); };
 
 function render() {
+  $('loading').hidden = S.ready;
+  if (!S.ready) { $('connect').hidden = $('app').hidden = true; return; }
   const connect = !S.user || wantConnect;
   $('connect').hidden = !connect;
   $('app').hidden = connect;
@@ -319,13 +337,13 @@ function renderWho() {
 
 const places = () => [...new Set(S.items.flatMap(i => i.name.split(/\s*\+\s*/)))].sort();
 const matches = i => (place === 'All' || i.name.split(/\s*\+\s*/).includes(place)) &&
-  (!query || `${i.bus} ${i.name} ${i.time}`.toLowerCase().includes(query));
+  (!query || `${i.bus} ${i.name} ${i.time} ${hmStr(i.time)}`.toLowerCase().includes(query));
 
 function renderList() {
   const job = activeJob();
   const locked = !!job?.running;
   const order = job ? job.targets.map(t => t.id) : sel;
-  const key = JSON.stringify([S.items, order, place, query, locked, S.tz]);
+  const key = JSON.stringify([S.items, order, place, query, locked, S.tz, h12]);
   if (key === listKey) return;
   listKey = key;
 
@@ -357,7 +375,7 @@ function row(it, locked, order) {
   }
   return `<button class="row${i >= 0 ? ' on' : ''}" data-id="${it.id}"${locked ? ' disabled' : ''} title="Route id ${it.id}">
     <span class="bus">${esc(it.bus)}</span><span class="dest">${esc(it.name)}</span>
-    <span class="time">${esc(it.time)}</span><span>${seats}</span><span class="rank">${i >= 0 ? i + 1 : ''}</span></button>`;
+    <span class="time">${esc(hmStr(it.time))}</span><span>${seats}</span><span class="rank">${i >= 0 ? i + 1 : ''}</span></button>`;
 }
 
 const PHASES = {
@@ -376,7 +394,7 @@ function renderPlan() {
 
   const targets = job ? job.targets : sel.map(id => byId.get(id)).filter(Boolean).map(i => ({ id: i.id, label: `${i.bus} -> ${i.name} @ ${i.time}` }));
   $('targets').innerHTML = targets.map((t, n) =>
-    `<li class="${job && job.current === t.id && running ? 'cur' : ''}"><span class="n">${n + 1}</span><span class="t">${esc(t.label)}</span>` +
+    `<li class="${job && job.current === t.id && running ? 'cur' : ''}"><span class="n">${n + 1}</span><span class="t">${esc(localize(t.label))}</span>` +
     (job ? '' : `<button class="x" data-remove="${t.id}" aria-label="Remove">&times;</button>`) + '</li>').join('');
   $('hint').hidden = !!job || targets.length > 1;
 
@@ -393,7 +411,7 @@ function renderPlan() {
 
   const res = job && !running ? job.result : null;
   $('result').hidden = !res;
-  if (res) { $('result').textContent = res.text; $('result').className = `result ${res.ok || res.already ? 'good' : 'bad'}`; }
+  if (res) { $('result').textContent = localize(res.text); $('result').className = `result ${res.ok || res.already ? 'good' : 'bad'}`; }
 
   $('dryWrap').hidden = !!job;
   $('clear').hidden = !!job || !targets.length;
@@ -406,12 +424,12 @@ function renderPlan() {
 
   $('log').hidden = !job;
   if (job) {
-    const key = job.id + ':' + job.log.length + ':' + (job.log.at(-1)?.t ?? '');
+    const key = job.id + ':' + job.log.length + ':' + (job.log.at(-1)?.t ?? '') + ':' + h12;
     if (key !== logKey) {
       logKey = key;
       const el = $('log');
       const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
-      el.textContent = job.log.map(l => `${ms3(l.t)}  ${l.text}`).join('\n');
+      el.textContent = job.log.map(l => `${ms3(l.t)}  ${localize(l.text)}`).join('\n');
       if (atBottom) el.scrollTop = el.scrollHeight;
     }
   }
@@ -476,6 +494,19 @@ $('saveCookie').onclick = () => act($('saveCookie'), async () => {
     $('cookieErr').hidden = false;
   }
 });
+
+function renderHourFmt() {
+  for (const b of $('hourFmt').children) b.classList.toggle('on', (b.dataset.h12 === '1') === h12);
+}
+$('hourFmt').addEventListener('click', e => {
+  const b = e.target.closest('[data-h12]');
+  if (!b) return;
+  h12 = b.dataset.h12 === '1';
+  store.set('h12', h12);
+  renderHourFmt();
+  if (S) render();
+});
+renderHourFmt();
 
 setInterval(tickClocks, 100);
 if (!TOKEN) document.body.innerHTML = '<main><div class="card connect">Open the link printed in the console window (it has a ?t=... token).</div></main>';

@@ -25,6 +25,7 @@ Options
   -r, --route <id|name>  route id or part of its name; comma list = fallbacks
   -l, --list             list and exit
       --login            open the 42 login window and save the session
+      --12h              show times as 9:00 PM instead of 21:00
       --dry-run          do everything except send the booking request
       --early <ms>       start firing this many ms before opening (default: auto)
       --interval <ms>    gap between booking requests (default 40)
@@ -145,6 +146,7 @@ function parseArgs(argv) {
       case '-h': case '--help': o.help = true; break;
       case '-l': case '--list': o.list = true; break;
       case '--login': o.login = true; break;
+      case '--12h': bus.useHour12(true); break;
       case '-r': case '--route': o.routes.push(...next().split(',').map(s => s.trim()).filter(Boolean)); break;
       case '--dry-run': o.dryRun = true; break;
       case '--early': o.early = num(next(), a); break;

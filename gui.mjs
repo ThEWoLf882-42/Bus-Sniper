@@ -6,11 +6,10 @@
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import * as bus from './core.mjs';
-import { relogin, canLogin, findBrowser } from './login.mjs';
+import { relogin, canLogin, findBrowser, openInBrowser } from './login.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TOKEN = randomBytes(16).toString('hex');
@@ -21,6 +20,7 @@ bus.useCookieFile(join(HERE, 'cookie.txt'));
 let user = null, authError = null, latest = null, items = [];
 let job = null;
 let loginTask = null, loginText = null, autoLogin = true;
+let ready = false; // first login check done
 
 async function refresh() {
   try {
@@ -75,6 +75,7 @@ const view = it => {
 };
 
 const state = () => ({
+  ready,
   user: user && { login: user.login },
   authError,
   expires: user && Number.isFinite(bus.sessionExpiry()) ? bus.sessionExpiry() : null,
@@ -192,12 +193,6 @@ function readJson(req) {
   });
 }
 
-function openBrowser(url) {
-  const [cmd, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
-    : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
-  spawn(cmd, args, { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
-}
-
 server.on('error', e => {
   if (e.code === 'EADDRINUSE' && server.listening === false && PORT !== 0) server.listen(0, '127.0.0.1');
   else throw e;
@@ -206,9 +201,13 @@ server.listen(PORT, '127.0.0.1', async () => {
   const url = `http://127.0.0.1:${server.address().port}/?t=${TOKEN}`;
   console.log(`Bus GUI running at ${url}`);
   console.log('Keep this window open - closing it stops the booking.');
+  const b = findBrowser();
+  console.log(`Browser: ${b ? `${b.name} (${b.open ? 'already open' : b.note ?? 'your default'})` : 'system default (login window unavailable)'}`);
+  // page first, so a login window that pops up next has the page explaining it
+  if (!process.env.BUS_GUI_NO_OPEN) openInBrowser(url);
   await bus.syncClock(8).catch(() => {});
   await refresh().catch(e => { authError = e.message; });
-  if (!process.env.BUS_GUI_NO_OPEN) openBrowser(url);
+  ready = true;
 });
 
 // keep the list fresh while idle (opening times roll over, seats fill up)
