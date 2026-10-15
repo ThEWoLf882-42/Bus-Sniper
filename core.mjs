@@ -7,6 +7,10 @@ import { spawn } from 'node:child_process';
 export const ORIGIN = process.env.BUS_ORIGIN ?? 'https://bus-med.1337.ma';
 const API = `${ORIGIN}/api`;
 const MAX_INFLIGHT = 4;    // parallel requests during the rush
+const BURST_GAP = 5;       // ms between requests right around the opening...
+const BURST_BEFORE = 20;   // ...starting this long (+ one-way latency) before it
+const BURST_AFTER = 300;   // ...until this long after it
+const BURST_INFLIGHT = 8;
 const PREP_LEAD = 75_000;  // re-check login + sync clock this long before opening
 export const DEFAULTS = { early: null, interval: 40, duration: 15, dryRun: false };
 
@@ -204,23 +208,26 @@ async function grab(route, o) {
   }
   // open a few keep-alive connections so the rush skips TCP/TLS handshakes
   await sleepUntil(sendAt - 1500, signal);
-  await Promise.all(Array.from({ length: MAX_INFLIGHT }, () => api('GET', '/auth/isAuth').catch(() => null)));
+  await Promise.all(Array.from({ length: BURST_INFLIGHT }, () => api('GET', '/auth/isAuth').catch(() => null)));
   await sleepUntil(sendAt, signal);
   phase('firing', opensAt);
-  log(`firing (${early}ms early, every ${o.interval}ms)${dep ? ` at departure #${dep.id}` : ''}`);
+  log(`firing (${early}ms early, every ${o.interval}ms, every ${BURST_GAP}ms around the opening)${dep ? ` at departure #${dep.id}` : ''}`);
   return rush(route, dep, opensAt, o);
 }
 
-// Fire booking requests (or, until the departure shows up, lookups) every
-// o.interval ms, with at most MAX_INFLIGHT in flight, until one sticks.
+// Fire booking requests (or, until the departure shows up, lookups) until one
+// sticks. The site creates the departure 30-75ms after the hour, so right
+// around the opening they go out every BURST_GAP ms from a tight loop (Windows
+// timers are ~15ms coarse); before and after that burst, every o.interval ms.
 function rush(route, knownDep, opensAt, o) {
   return new Promise(resolve => {
-    let dep = knownDep, inflight = 0, shots = 0, lastMsg = '', finished = false;
+    let dep = knownDep, inflight = 0, shots = 0, lastMsg = '', finished = false, next = 0;
+    let booking = false; // one booking request at a time: never risk two seats
     const deadline = Math.max(opensAt, serverNow()) + o.duration * 1000;
+    const burstFrom = opensAt - oneWay - BURST_BEFORE, burstTo = opensAt + BURST_AFTER;
     const finish = r => {
       if (finished) return;
       finished = true;
-      clearInterval(timer);
       resolve({ ...r, shots });
     };
     const say = (ms, m) => { if (m !== lastMsg) { lastMsg = m; o.log(`${rel(ms)}  ${m}`); } };
@@ -228,8 +235,15 @@ function rush(route, knownDep, opensAt, o) {
 
     const book = async () => {
       if (o.dryRun) return finish({ ok: true, dry: true, dep, at: serverNow() - opensAt });
+      if (booking) return;
+      booking = true;
       shots++;
-      const r = await api('POST', '/tickets/book', { departure_id: dep.id, to_campus: false });
+      let r;
+      try {
+        r = await api('POST', '/tickets/book', { departure_id: dep.id, to_campus: false });
+      } finally {
+        booking = false;
+      }
       if (finished) return;
       const at = r.t1 + clockOffset - opensAt;
       if (r.ok) return finish({ ok: true, at, dep });
@@ -247,16 +261,26 @@ function rush(route, knownDep, opensAt, o) {
       inflight++;
       book().catch(onErr).finally(() => inflight--);
     };
-    const tick = () => {
+    const loop = () => {
       if (finished) return;
+      const now = serverNow();
       if (o.signal?.aborted) return finish({ ok: false, fatal: true, stopped: true, reason: 'stopped' });
-      if (serverNow() > deadline) return finish({ ok: false, reason: `no luck after ${o.duration}s (last answer: ${lastMsg || 'none'})` });
-      if (inflight >= MAX_INFLIGHT) return;
-      inflight++;
-      (dep ? book() : look()).catch(onErr).finally(() => inflight--);
+      if (now > deadline) return finish({ ok: false, reason: `no luck after ${o.duration}s (last answer: ${lastMsg || 'none'})` });
+      const burst = now >= burstFrom && now <= burstTo;
+      if (burst && next > now + BURST_GAP) next = now; // don't carry the slow pace into the burst
+      if (now >= next && !(dep && booking) && inflight < (burst ? BURST_INFLIGHT : MAX_INFLIGHT)) {
+        next = now + (burst ? BURST_GAP : o.interval);
+        inflight++;
+        (dep ? book() : look()).catch(onErr).finally(() => inflight--);
+      }
+      // spin through the burst (responses still get handled between turns),
+      // otherwise sleep until the next request or the burst, whichever is first
+      const t = serverNow();
+      if (t >= burstFrom - 20 && t <= burstTo) return setImmediate(loop);
+      const untilBurst = t < burstFrom - 20 ? burstFrom - 20 - t : Infinity;
+      setTimeout(loop, Math.max(5, Math.min(next - t, untilBurst)));
     };
-    const timer = setInterval(tick, o.interval);
-    tick();
+    loop();
   });
 }
 

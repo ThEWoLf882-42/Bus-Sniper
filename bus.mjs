@@ -28,7 +28,8 @@ Options
       --12h              show times as 9:00 PM instead of 21:00
       --dry-run          do everything except send the booking request
       --early <ms>       start firing this many ms before opening (default: auto)
-      --interval <ms>    gap between booking requests (default 40)
+      --interval <ms>    gap between requests, except during the 5ms burst
+                         from just before to 300ms after opening (default 40)
       --duration <s>     keep trying this long after opening (default 15)
       --cookie-file <p>  cookie file (default: cookie.txt next to this script)
 
