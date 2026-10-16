@@ -1,0 +1,4 @@
+# start scripts must keep their line endings on every clone
+*.sh       text eol=lf
+*.command  text eol=lf
+*.bat      text eol=crlf

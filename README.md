@@ -22,6 +22,11 @@ Works on Windows, macOS and Linux. Needs **Node.js 22 or newer** - check with `n
 
 A console window stays open (that's the bot: keep it open) and the GUI opens in your default browser.
 
+**Auto-update:** if you got this folder with `git clone`, the start scripts run `git pull`
+first, so you always start the latest version (offline or with local edits it just starts the
+current one). To turn it off in a folder, create a file named `.no-auto-update` in it.
+Terminal version: run `git pull` yourself.
+
 ## Use
 
 1. **Log in**: click *Log in with 42*. A separate window of your default browser opens
