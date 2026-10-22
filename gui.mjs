@@ -30,7 +30,10 @@ async function refresh() {
     autoLogin = true; // next time it expires, log in again by itself
   } catch (e) {
     user = null;
-    authError = e instanceof bus.BusError ? e.message : `Can't reach the bus site (${e.cause?.code ?? e.message})`;
+    latest = null;
+    items = [];
+    if (e instanceof bus.AccessError) job?.controller.abort();
+    authError = e instanceof bus.BusError || e instanceof bus.AccessError ? e.message : `Can't reach the bus site (${e.cause?.code ?? e.message})`;
     // logged out (no cookie or it expired): bring up the login once, not in a loop
     if (e instanceof bus.BusError && autoLogin && canLogin()) {
       autoLogin = false;
@@ -46,7 +49,7 @@ function startLogin({ deadline } = {}) {
   loginTask ??= (async () => {
     try {
       const cookie = await relogin({ deadline, log: m => (loginText = m) });
-      bus.saveCookie(cookie);
+      await bus.saveCookie(cookie);
       loginText = null;
       await refresh();
     } catch (e) {
@@ -159,7 +162,7 @@ const server = http.createServer(async (req, res) => {
         startLogin().catch(() => {});
         return send(200, state());
       case 'POST /api/cookie':
-        bus.saveCookie(body.cookie);
+        await bus.saveCookie(body.cookie);
         await refresh();
         if (authError) return send(400, { error: authError });
         return send(200, state());
@@ -176,7 +179,7 @@ const server = http.createServer(async (req, res) => {
         return send(404, { error: 'not found' });
     }
   } catch (e) {
-    return send(e instanceof bus.BusError ? 400 : 500, { error: e.message });
+    return send(e instanceof bus.AccessError ? 403 : e instanceof bus.BusError ? 400 : 500, { error: e.message });
   }
 });
 

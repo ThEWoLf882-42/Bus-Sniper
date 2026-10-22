@@ -11,3 +11,9 @@ node_modules/
 
 # dev folder only: stops the start scripts from auto-updating
 .no-auto-update
+
+# Owner private keys must stay outside this folder. Ignore accidental copies.
+.bus-sniper-owner/
+*.pem
+!access-public.pem
+comands

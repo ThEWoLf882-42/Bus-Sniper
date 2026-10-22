@@ -305,7 +305,7 @@ function render() {
 function renderLogin() {
   const L = S.login;
   $('authErr').textContent = S.user ? `Logged in as ${S.user.login}.`
-    : S.authError?.startsWith("Can't reach") ? S.authError : "You're not logged in, or the login expired.";
+    : S.authError || "You're not logged in, or the login expired.";
   $('loginNote').hidden = !L.busy && !L.text;
   $('loginNote').className = `notice${!L.busy && L.text ? ' bad' : ''}`;
   $('loginNote').innerHTML = L.busy ? `<span class="spin"></span>${esc(L.text || 'Starting the login window...')}` : esc(L.text);

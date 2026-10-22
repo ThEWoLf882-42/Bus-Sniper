@@ -10,7 +10,7 @@ import { createServer } from 'node:net';
 import { homedir } from 'node:os';
 import { basename, delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ORIGIN, BusError, checkCookie } from './core.mjs';
+import { ORIGIN, BusError, AccessError, checkAccessConfiguration, checkCookie } from './core.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HOST = new URL(ORIGIN).hostname;
@@ -158,13 +158,14 @@ export const canLogin = () => typeof WebSocket !== 'undefined' && !!findBrowser(
 // still remembers your 42 login), then with a window unless interactive=false.
 // Resolves to the cookie header for bus-med.
 export async function relogin({ interactive = true, deadline = Infinity, log = () => {}, signal } = {}) {
+  checkAccessConfiguration();
   const left = () => deadline - Date.now();
   const b = findBrowser();
   if (b && existsSync(join(profileDir(b), OK_MARK))) {
     try {
       return await browserLogin({ silent: true, timeout: Math.min(25_000, left()), log, signal });
     } catch (e) {
-      if (signal?.aborted) throw e;
+      if (signal?.aborted || e instanceof AccessError) throw e;
       log(`quiet renewal didn't work (${e.message})`);
     }
   }
@@ -173,6 +174,7 @@ export async function relogin({ interactive = true, deadline = Infinity, log = (
 }
 
 export async function browserLogin({ silent = false, timeout, log = () => {}, signal } = {}) {
+  checkAccessConfiguration();
   if (typeof WebSocket === 'undefined') throw new BusError('the login window needs Node.js 22 or newer - update Node, or paste the cookie by hand');
   const browser = findBrowser();
   if (!browser) throw new BusError('no Chrome, Edge, Brave or Firefox found for the login window - install one, or paste the cookie by hand');

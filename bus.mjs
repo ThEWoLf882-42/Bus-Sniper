@@ -47,6 +47,7 @@ const tty = process.stdout.isTTY;
 const log = s => { if (tty) process.stdout.write('\r\x1b[K'); console.log(s); };
 
 async function main() {
+  bus.checkAccessConfiguration();
   bus.useCookieFile(resolve(opt.cookieFile ?? join(HERE, 'cookie.txt')));
   if (opt.login) await logIn();
   let me;
@@ -92,7 +93,7 @@ async function main() {
 }
 
 async function logIn(deadline) {
-  bus.saveCookie(await relogin({ deadline, log }));
+  await bus.saveCookie(await relogin({ deadline, log }));
 }
 
 function printMenu(items) {
@@ -165,4 +166,4 @@ function die(msg) {
   process.exit(1);
 }
 
-await main().catch(e => die(e instanceof bus.BusError ? e.message : e?.stack ?? String(e)));
+await main().catch(e => die(e instanceof bus.BusError || e instanceof bus.AccessError ? e.message : e?.stack ?? String(e)));

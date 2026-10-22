@@ -3,6 +3,8 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { AccessError, assertAllowedLogin, checkAccessConfiguration } from './access.mjs';
+export { AccessError, checkAccessConfiguration } from './access.mjs';
 
 export const ORIGIN = process.env.BUS_ORIGIN ?? 'https://bus-med.1337.ma';
 const API = `${ORIGIN}/api`;
@@ -18,6 +20,8 @@ export class BusError extends Error {}
 
 let cookieFile = null;
 let COOKIE = '';
+let verifiedSession = null;
+const IDENTITY_MAX_AGE = 60_000;
 let clockOffset = 0; // server clock minus local clock, ms
 let oneWay = 50;     // estimated one-way latency, ms
 export const serverNow = () => Date.now() + clockOffset;
@@ -33,13 +37,22 @@ export function reloadCookie() {
     if (!cookieFile || !existsSync(cookieFile)) throw new BusError(`No cookie yet - put it in ${cookieFile}.`);
     raw = readFileSync(cookieFile, 'utf8');
   }
-  COOKIE = parseCookie(raw);
+  setCookie(parseCookie(raw));
 }
 
 // Stores only the cookies for this site, never the rest of a JSON export.
-export function saveCookie(raw) {
-  COOKIE = parseCookie(raw);
-  writeFileSync(cookieFile, `${COOKIE}\n`);
+export async function saveCookie(raw) {
+  const cookie = parseCookie(raw);
+  const r = await authenticate(cookie);
+  requireAuthenticated(r);
+  writeFileSync(cookieFile, `${cookie}\n`, { mode: 0o600 });
+  setCookie(cookie);
+  verifiedSession = { cookie, user: r.data, at: Date.now() };
+}
+
+function setCookie(cookie) {
+  if (COOKIE !== cookie) verifiedSession = null;
+  COOKIE = cookie;
 }
 
 function parseCookie(raw) {
@@ -67,8 +80,8 @@ function parseCookie(raw) {
 }
 
 export async function checkCookie(cookie) {
-  const r = await fetch(`${API}/auth/isAuth`, { headers: { cookie, origin: ORIGIN }, signal: AbortSignal.timeout(8000) }).catch(() => null);
-  return !!r?.ok;
+  try { return (await authenticate(cookie)).ok; }
+  catch (e) { if (e instanceof AccessError) throw e; return false; }
 }
 
 // earliest "exp" of any JWT in the cookie, or Infinity
@@ -87,12 +100,19 @@ export function sessionExpiry() {
 
 export async function whoami() {
   const r = await api('GET', '/auth/isAuth');
-  if (r.status === 401) throw new BusError('Not logged in: the cookie is missing or expired.');
-  if (!r.ok) throw new BusError(`Login check failed: ${r.status} ${msgOf(r)}`);
+  requireAuthenticated(r);
   return r.data;
 }
 
-export const latestTicket = () => api('GET', '/tickets/latest').then(r => (r.ok ? r.data : null), () => null);
+function requireAuthenticated(r) {
+  if (r.status === 401) throw new BusError('Not logged in: the cookie is missing or expired.');
+  if (!r.ok) throw new BusError(`Login check failed: ${r.status} ${msgOf(r)}`);
+}
+
+export const latestTicket = () => api('GET', '/tickets/latest').then(r => (r.ok ? r.data : null), e => {
+  if (e instanceof AccessError) throw e;
+  return null;
+});
 
 // ---------- data ----------
 
@@ -193,6 +213,7 @@ async function grab(route, o) {
       me = await api('GET', '/auth/isAuth');
       if (me.ok) log('login renewed');
     } catch (e) {
+      if (e instanceof AccessError) throw e;
       log(`could not renew login: ${e.message}`);
     }
   }
@@ -231,7 +252,9 @@ function rush(route, knownDep, opensAt, o) {
       resolve({ ...r, shots });
     };
     const say = (ms, m) => { if (m !== lastMsg) { lastMsg = m; o.log(`${rel(ms)}  ${m}`); } };
-    const onErr = e => say(serverNow() - opensAt, `network: ${e.cause?.code ?? e.name ?? e.message}`);
+    const onErr = e => e instanceof AccessError || e instanceof BusError
+      ? finish({ ok: false, fatal: true, reason: e.message })
+      : say(serverNow() - opensAt, `network: ${e.cause?.code ?? e.name ?? e.message}`);
 
     const book = async () => {
       if (o.dryRun) return finish({ ok: true, dry: true, dep, at: serverNow() - opensAt });
@@ -295,11 +318,39 @@ export function describeResult(r) {
 // ---------- http / clock ----------
 
 async function api(method, path, body) {
+  // Capture the cookie so a concurrent GUI login cannot change the account
+  // between checking its identity and sending this request.
+  const cookie = COOKIE;
+  if (method === 'GET' && path === '/auth/isAuth') return authenticate(cookie);
+  const session = verifiedSession;
+  if (!session || session.cookie !== cookie || Date.now() - session.at >= IDENTITY_MAX_AGE) {
+    requireAuthenticated(await authenticate(cookie));
+  } else {
+    assertAllowedLogin(session.user);
+  }
+  return request(method, path, body, cookie);
+}
+
+async function authenticate(cookie) {
+  checkAccessConfiguration();
+  // Identity comes from the authenticated bus endpoint, never a decoded JWT
+  // or a login name supplied by the GUI. Redirects must not count as a login.
+  const r = await request('GET', '/auth/isAuth', undefined, cookie);
+  if (COOKIE === cookie) verifiedSession = null;
+  if (r.ok) {
+    assertAllowedLogin(r.data);
+    if (COOKIE === cookie) verifiedSession = { cookie, user: r.data, at: Date.now() };
+  }
+  return r;
+}
+
+async function request(method, path, body, cookie) {
   const t0 = Date.now();
   const res = await fetch(API + path, {
     method,
+    redirect: 'error',
     headers: {
-      cookie: COOKIE,
+      cookie,
       origin: ORIGIN,
       referer: `${ORIGIN}/home`,
       accept: 'application/json, text/plain, */*',
